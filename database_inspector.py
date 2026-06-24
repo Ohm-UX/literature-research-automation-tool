@@ -2,7 +2,7 @@
 Extracts the necessary information from the dataset and saves it in a new file into
 parquet format.
 
-Author: Christoph Ruff
+Author: Christoph Ruff, Github Copilot
 """
 
 import duckdb
