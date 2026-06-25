@@ -21,6 +21,8 @@ def main():
     id_column = "id"
     # Columns to be merged into a single text input for embedding.
     text_columns = ["title", "abstract"]
+    # Whether to run in test mode (only embed first batch) or embed the entire dataset.
+    test_mode = True
     # Model name for the embedding model.
     model_name = "microsoft/harrier-oss-v1-0.6b"
     # Path prefix for saving embeddings and metadata.
@@ -59,7 +61,7 @@ def main():
         id_column=id_column,
         text_columns=text_columns,
         model_name=model_name,
-        test_mode=True,  # Set to False to embed the entire dataset
+        test_mode=test_mode,
     )
     embedder.run()
 
