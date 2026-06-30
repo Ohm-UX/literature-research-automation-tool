@@ -60,7 +60,7 @@ The main settings are defined in main.py. Before running the tool, review the fo
 - top_k: number of results to return
 - similarity_threshold: optional minimum similarity score
 
-For a quick smoke test, the code sets test_mode=True, which embeds only a teh first batch. Set it to False to process the full dataset.
+For a quick smoke test, the code sets test_mode=True, which embeds only a the first batch. Set it to False to process the full dataset.
 
 ## Usage
 

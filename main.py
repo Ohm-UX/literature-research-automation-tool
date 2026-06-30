@@ -13,8 +13,8 @@ def main():
     # User Configuration
     # =========================
     # File paths for the JSON and Parquet files.
-    json_file = "../Arxiv_Dataset/arxiv-metadata-oai-snapshot.json"
-    parquet_file = "../Arxiv_Dataset/arxiv_metadata.parquet"
+    json_file = "dataset/arxiv-metadata-oai-snapshot.json"
+    parquet_file = "dataset/arxiv_metadata.parquet"
     # Columns to be extracted from the JSON file.
     column_names = ["id", "title", "doi", "abstract", "authors_parsed"]
     # Column name for the unique identifier in the Parquet file.
@@ -22,11 +22,11 @@ def main():
     # Columns to be merged into a single text input for embedding.
     text_columns = ["title", "abstract"]
     # Whether to run in test mode (only embed first batch) or embed the entire dataset.
-    test_mode = True
+    test_mode = False
     # Model name for the embedding model.
     model_name = "microsoft/harrier-oss-v1-0.6b"
     # Path prefix for saving embeddings and metadata.
-    output_prefix = f"data/{model_name.replace('/', '_')}"
+    output_prefix = f"output_data/{model_name.replace('/', '_')}"
     # Query string for searching similar papers in the embedded dataset.
     query = (
         "The evolution of the Earth-Moon system based on the dark matter field "
@@ -35,7 +35,11 @@ def main():
     # Number of top similar results to retrieve. Set to None to ignore the top_k limit.
     top_k = 5
     # Similarity threshold for filtering results. Set to None to ignore the threshold.
-    similarity_threshold = None  # Set to None to ignore the threshold
+    similarity_threshold = None
+    # Number of rows to embed per chunk during embedding.
+    chunk_size = 16
+    # Number of rows to read and embed per batch during embedding.
+    batch_size = 8
 
     print("Start Literature Research Automation Tool!")
 
@@ -61,6 +65,8 @@ def main():
         id_column=id_column,
         text_columns=text_columns,
         model_name=model_name,
+        chunk_size=chunk_size,
+        batch_size=batch_size,
         test_mode=test_mode,
     )
     embedder.run()

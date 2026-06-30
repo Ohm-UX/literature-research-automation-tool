@@ -17,6 +17,7 @@ from pathlib import Path
 import duckdb
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from usearch.index import Index
 
 
 class DatabaseEmbedder:
@@ -29,6 +30,7 @@ class DatabaseEmbedder:
         id_column: str = "id",
         text_columns: list[str] | None = None,
         model_name: str = "microsoft/harrier-oss-v1-0.6b",
+        chunk_size: int = 10000,
         batch_size: int = 8,
         test_mode: bool = False,
     ):
@@ -40,6 +42,9 @@ class DatabaseEmbedder:
         self.text_columns = text_columns or ["title", "abstract"]
         self.model_name = model_name
         self.batch_size = batch_size
+        # chunk_size controls how many rows are read from Parquet at once.
+        # The same chunk_size is also used later during similarity search.
+        self.chunk_size = chunk_size
 
         # If test_mode is True, only the first batch is embedded.
         # This is useful to check whether the model, files, and dependencies work
@@ -62,7 +67,23 @@ class DatabaseEmbedder:
             f"{output_prefix_path.stem}_metadata.meta.json"
         )
 
-    def _read_rows(self, limit: int | None = None) -> list[tuple]:
+        # Path where the USearch vector index is saved.
+        # This is not the same as a full database; it stores the searchable vector index
+        self.vector_index_path = output_prefix_path.with_name(
+            f"{output_prefix_path.stem}_usearch.index"
+        )
+
+    def _count_rows(self) -> int:
+        """Count rows in the Parquet file."""
+
+        query = f"""
+            SELECT COUNT(*)
+            FROM read_parquet('{self.parquet_file.as_posix()}')
+        """
+
+        return duckdb.sql(query).fetchone()[0]
+
+    def _read_rows(self, limit: int | None = None, offset: int = 0) -> list[tuple]:
         """Read selected rows from the Parquet file using DuckDB."""
 
         selected_columns = [self.id_column, *self.text_columns]
@@ -76,6 +97,7 @@ class DatabaseEmbedder:
             SELECT {columns_sql}
             FROM read_parquet('{self.parquet_file.as_posix()}')
             {limit_sql}
+            OFFSET {offset}
         """
 
         return duckdb.sql(query).fetchall()
@@ -107,17 +129,6 @@ class DatabaseEmbedder:
 
         return ids, texts
 
-    def _read_texts(self) -> tuple[list[str], list[str]]:
-        """Read IDs and combined text fields from the Parquet file."""
-
-        if self.test_mode:
-            print(f"Test mode active: reading only {self.batch_size} rows.")
-            rows = self._read_rows(limit=self.batch_size)
-        else:
-            rows = self._read_rows()
-
-        return self._build_ids_and_texts(rows)
-
     def _embed_texts(self, texts: list[str]) -> np.ndarray:
         """Create normalized embeddings for a list of texts."""
 
@@ -132,7 +143,38 @@ class DatabaseEmbedder:
 
         return np.asarray(embeddings, dtype=np.float32)
 
-    def _save_outputs(
+    def _save_vector_index(self, embeddings: np.ndarray) -> None:
+        """
+        Save embeddings into a USearch vector index.
+
+        USearch is used here as a fast vector search index.
+        It stores the embedding vectors and allows fast nearest-neighbor search.
+
+        Important:
+        - The index key is the row position: 0, 1, 2, ...
+        - These keys must stay aligned with metadata["ids"] and metadata["texts"].
+        - Example: key 25 means metadata["ids"][25] and metadata["texts"][25].
+        """
+
+        print("Building USearch vector index...")
+
+        embedding_dimension = embeddings.shape[1]
+
+        index = Index(
+            ndim=embedding_dimension,
+            metric="cos",
+            dtype="f32",
+        )
+
+        keys = np.arange(embeddings.shape[0], dtype=np.uint64)
+
+        index.add(keys, embeddings)
+
+        index.save(str(self.vector_index_path))
+
+        print(f"Saved USearch index to: {self.vector_index_path}\n")
+
+    def _save_embeddings(
         self,
         ids: list[str],
         texts: list[str],
@@ -158,13 +200,39 @@ class DatabaseEmbedder:
     def run(self) -> None:
         """Run the full embedding pipeline."""
 
+        all_ids = []
+        all_texts = []
+        embedding_chunks = []
+
+        total_rows = self._count_rows()
+
+        if self.test_mode:
+            total_rows = min(total_rows, self.batch_size)
+
         print("Reading Parquet file...")
-        ids, texts = self._read_texts()
+        limit = self.batch_size if self.test_mode else self.chunk_size
+        for offset in range(0, total_rows, self.chunk_size):
+            rows = self._read_rows(limit=limit, offset=offset)
 
-        print(f"Embedding {len(texts)} texts with {self.model_name}...")
-        embeddings = self._embed_texts(texts)
+            ids, texts = self._build_ids_and_texts(rows)
 
-        self._save_outputs(ids, texts, embeddings)
+            print(f"Embedding {len(texts)} texts with {self.model_name}...")
+            embeddings = self._embed_texts(texts)
+
+            all_ids.extend(ids)
+            all_texts.extend(texts)
+            embedding_chunks.append(embeddings)
+
+        combined_embeddings = np.vstack(embedding_chunks)
+
+        self._save_embeddings(
+            ids=all_ids,
+            texts=all_texts,
+            embeddings=combined_embeddings,
+        )
+
+        # Save combined embeddings into a USearch index for faster similarity search.
+        self._save_vector_index(combined_embeddings)
 
     def _save_matching_results(
         self,
@@ -243,35 +311,56 @@ class DatabaseEmbedder:
         the results in a parquet and csv file with the matching parquet rows.
         """
         print(f"Start searching for similar results for query:\n {query}\n")
-        embeddings = np.load(self.embeddings_path)
         rows = self._read_rows()
-        ids, texts = self._build_ids_and_texts(rows)
+        ids, _ = self._build_ids_and_texts(rows)
 
         query_embedding = self.model.encode(
             [query],
             normalize_embeddings=True,
-        )[0]
+        )[0].astype(np.float32)
 
-        scores = embeddings @ query_embedding
-        if similarity_threshold is not None:
-            indices = np.where(scores >= similarity_threshold)[0]
-            indices = indices[np.argsort(scores[indices])[::-1]]
+        index = Index(
+            ndim=len(query_embedding),
+            metric="cos",
+            dtype="f32",
+        )
+        index.load(str(self.vector_index_path))
 
-            if top_k is not None:
-                indices = indices[:top_k]
-        else:
-            indices = np.argsort(scores)[::-1][:top_k]
+        # USearch needs a fixed number of candidates.
+        # If a threshold is used, retrieve more candidates first and filter later.
+        search_k = top_k if top_k is not None else len(ids)
+
+        matches = index.search(query_embedding, search_k)
 
         results = []
 
-        for index in indices:
+        for match in matches:
+            index_position = int(match.key)
+
+            # With cosine distance: smaller distance = more similar.
+            similarity_score = float(1 - match.distance)
+
+            if (
+                similarity_threshold is not None
+                and similarity_score < similarity_threshold
+            ):
+                continue
+
             results.append(
                 {
-                    "similarity_score": float(scores[index]),
-                    "id": ids[index],
-                    "text": texts[index],
+                    "similarity_score": similarity_score,
+                    "id": ids[index_position],
                 }
             )
+
+        results = sorted(
+            results,
+            key=lambda result: result["similarity_score"],
+            reverse=True,
+        )
+
+        if top_k is not None:
+            results = results[:top_k]
 
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)

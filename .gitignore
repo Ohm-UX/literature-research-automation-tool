@@ -15,5 +15,9 @@ wheels/
 # Ruff Cache
 .ruff_cache/
 
-# outputs
-data
+# outputs and inputs
+output_data/
+dataset/
+
+# Test file
+test.py
