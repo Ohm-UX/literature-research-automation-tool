@@ -250,6 +250,10 @@ class DatabaseEmbedder:
     ) -> None:
         """Save full matching rows to Parquet and CSV using DuckDB."""
 
+        if not results:
+            print("No matching results found. Nothing will be saved.")
+            return
+
         con = duckdb.connect()
 
         try:
