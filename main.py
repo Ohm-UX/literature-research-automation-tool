@@ -4,6 +4,8 @@ Runs the file
 Author: Christoph Ruff
 """
 
+from pathlib import Path
+
 from database_embedder import DatabaseEmbedder
 from database_inspector import JsonDatabaseInspector
 
@@ -34,15 +36,19 @@ def main():
     # Similarity threshold for filtering results. Set to None to ignore the threshold.
     similarity_threshold = 0.8
     # Number of rows to embed per chunk during embedding.
-    chunk_size = 16
+    chunk_size = 1000
     # Number of rows to read and embed per batch during embedding.
     batch_size = 8
 
     print("Start Literature Research Automation Tool!")
 
     # Create an inspector object for the JSON file
-    inspector = JsonDatabaseInspector(json_file)
-    inspector.export_to_parquet(output_file=parquet_file, column_names=column_names)
+    if not Path(parquet_file).exists():
+        inspector = JsonDatabaseInspector(json_file)
+        inspector.export_to_parquet(output_file=parquet_file, column_names=column_names)
+        inspector.close()
+    else:
+        print("Parquet already exists. Skipping export.")
 
     # columns_name = inspector.get_column_names()
     # columns = inspector.get_columns_by_name(column_names)
@@ -51,9 +57,6 @@ def main():
     # result = inspector.get_first_n_rows(n=5)
     # print(f"\nFirst {1} rows:\n")
     # print(result)
-
-    # Always close the database connection when finished
-    inspector.close()
 
     # Embed the Parquet dataset
     embedder = DatabaseEmbedder(
