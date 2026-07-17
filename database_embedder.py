@@ -147,7 +147,7 @@ class DatabaseEmbedder:
             normalize_embeddings=True,
         )
 
-        print(f"Embedding matrix shape: {embeddings.shape}")
+        # print(f"Embedding matrix shape: {embeddings.shape}")
 
         return np.asarray(embeddings, dtype=np.float32)
 
@@ -208,6 +208,13 @@ class DatabaseEmbedder:
     def run(self) -> None:
         """Run the full embedding pipeline."""
 
+        if self.embeddings_path.exists():
+            print(
+                f"Embedding data for '{self.model_name}' already exists. "
+                "Skipping embedding."
+            )
+            return
+
         all_ids = []
         all_texts = []
         embedding_chunks = []
@@ -224,7 +231,11 @@ class DatabaseEmbedder:
 
             ids, texts = self._build_ids_and_texts(rows)
 
-            print(f"Embedding {len(texts)} texts with {self.model_name}...")
+            current = min(offset + len(texts), total_rows)
+            print(
+                f"Embedding {current:,} of {total_rows:,} texts "
+                f"({current / total_rows * 100:.1f}%) with {self.model_name}...",
+            )
             embeddings = self._embed_texts(texts)
 
             all_ids.extend(ids)
@@ -329,6 +340,7 @@ class DatabaseEmbedder:
         query_embedding = self.model.encode(
             [query],
             normalize_embeddings=True,
+            prompt_name="web_search_query",
         )[0].astype(np.float32)
 
         index = Index(

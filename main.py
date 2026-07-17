@@ -1,6 +1,9 @@
 """
 Runs the file
 
+If an embedded file already exists, it will be used.
+Otherwise, the embedding process will be executed.
+
 Author: Christoph Ruff
 """
 
@@ -30,13 +33,16 @@ def main():
     # Path prefix for saving embeddings and metadata.
     output_prefix = f"output_data/{model_name.replace('/', '_')}"
     # Query string for searching similar papers in the embedded dataset.
-    query = "Deepfake detection. Human AI collaboration. Explainable AI."
+    query = (
+        "What deepfake detection tools are used by professional journalists and "
+        "fact checkers, to verify the authenticity of digital media?"
+    )
     # Number of top similar results to retrieve. Set to None to ignore the top_k limit.
     top_k = None
     # Similarity threshold for filtering results. Set to None to ignore the threshold.
-    similarity_threshold = 0.8
+    similarity_threshold = 0.5
     # Number of rows to embed per chunk during embedding.
-    chunk_size = 1000
+    chunk_size = 8192
     # Number of rows to read and embed per batch during embedding.
     batch_size = 8
 
@@ -74,7 +80,7 @@ def main():
     # Search for similar papers using the generated embeddings
     embedder.search_embeddings(
         query=query,
-        output_file=f"{output_prefix}_similarity_search.json",
+        output_file=f"{output_prefix}_{query[:20].replace('.', '_')}.json",
         top_k=top_k,
         similarity_threshold=similarity_threshold,
     )
