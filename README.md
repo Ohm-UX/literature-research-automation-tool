@@ -100,7 +100,7 @@ The pipeline writes the following artifacts into [output_data/](output_data):
 - The default configuration uses the model `microsoft/harrier-oss-v1-0.6b`.
 - `test_mode` in [main.py](main.py) can be enabled for a smaller smoke test over a limited subset of rows.
 - If your dataset is stored at a different location, update the paths in [main.py](main.py) before running the tool.
-- Use the notebook for searching queries in the already embedded files. This is a lot faster then always running main.py.
+- Use the notebook for searching queries in the already embedded files. This is a lot faster then always running [main.py](main.py).
 
 ## License
 
